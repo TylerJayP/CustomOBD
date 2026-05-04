@@ -14,6 +14,20 @@
             FontSize="14"
             TextColor="Green" />
 
+        <!-- RPM Display -->
+        <Label
+            Text="RPM"
+            FontSize="18"
+            HorizontalOptions="Center"
+            Margin="0,20,0,0" />
+
+        <Label
+            Text="{Binding CurrentRpm, StringFormat='{0:F0}'}"
+            FontSize="72"
+            FontAttributes="Bold"
+            TextColor="Red"
+            HorizontalOptions="Center" />
+
         <CollectionView
             ItemsSource="{Binding DiscoveredDevices}"
             SelectionMode="Single"
