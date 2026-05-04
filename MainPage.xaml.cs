@@ -1,4 +1,5 @@
 ﻿using CustomOBD.ViewModel;
+using Plugin.BLE.Abstractions.Contracts;
 using System.Diagnostics;
 
 namespace CustomOBD
@@ -27,6 +28,14 @@ namespace CustomOBD
         {
             Debug.WriteLine("Scan for devices clicked");
             await _btVM.ScanForDevices();
+        }
+
+        private async void OnDeviceSelected(object sender, SelectionChangedEventArgs e)
+        {
+            var device = e.CurrentSelection.FirstOrDefault() as IDevice;
+            if (device != null) {
+                await _btVM.ConnectToDevice(device);
+            }
         }
     }
 }

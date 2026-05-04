@@ -3,13 +3,22 @@ using Plugin.BLE.Abstractions.Contracts;
 using Plugin.BLE.Abstractions.Exceptions;
 using System.Collections.ObjectModel;
 using System.Diagnostics;
+using CustomOBD.Services;
 
 namespace CustomOBD.ViewModel;
 public class BluetoothViewModel : ObservableObject
 {
     readonly IBluetoothLE _ble;
     readonly IAdapter _adapter;
-    public ObservableCollection<IDevice> DiscoveredDevices = new ObservableCollection<IDevice>();
+    private string _connectionStatus = "";
+
+    public string ConnectionStatus
+    {
+        get => _connectionStatus;
+        set => SetProperty(ref _connectionStatus, value);
+    }
+    public ObservableCollection<IDevice> DiscoveredDevices { get; set; } = new ObservableCollection<IDevice>();
+
 
     public BluetoothViewModel(IBluetoothLE ble, IAdapter adadpter)
     {
@@ -19,6 +28,8 @@ public class BluetoothViewModel : ObservableObject
 
     public async Task ScanForDevices()
     {
+        Debug.WriteLine($"BLE is on: {_ble.IsOn}, State: {_ble.State}");
+
         if (!_ble.IsOn)
         {
             return;
@@ -33,6 +44,10 @@ public class BluetoothViewModel : ObservableObject
         try
         {
             await _adapter.ConnectToDeviceAsync(device);
+            ObdService service = new ObdService();
+            await service.InitializeAsync(device);
+            var vin = await service.GetVinAsync();
+            ConnectionStatus = $"Connected - VIN: {vin}";
         }
         catch (DeviceConnectionException DCE)
         {

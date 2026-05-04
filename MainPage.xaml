@@ -3,24 +3,31 @@
              xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml"
              x:Class="CustomOBD.MainPage">
 
-    <ScrollView>
-        <VerticalStackLayout
-            Padding="30,0"
-            Spacing="25">
+    <VerticalStackLayout Padding="30" Spacing="15">
 
-            <Button
-                Text="Scan for devices"
-                Clicked="ScanForDevices" />
+        <Button
+            Text="Scan for devices"
+            Clicked="ScanForDevices" />
 
-            <CollectionView ItemsSource="{Binding DiscoveredDevices}">
-                <CollectionView.ItemTemplate>
-                    <DataTemplate>
-                        <Label Text="{Binding Name}" />
-                    </DataTemplate>
-                </CollectionView.ItemTemplate>
-            </CollectionView>
+        <Label
+            Text="{Binding ConnectionStatus}"
+            FontSize="14"
+            TextColor="Green" />
 
-        </VerticalStackLayout>
-    </ScrollView>
+        <CollectionView
+            ItemsSource="{Binding DiscoveredDevices}"
+            SelectionMode="Single"
+            SelectionChanged="OnDeviceSelected">
+            <CollectionView.ItemTemplate>
+                <DataTemplate>
+                    <Label
+                        Text="{Binding Name}"
+                        Padding="10"
+                        FontSize="16" />
+                </DataTemplate>
+            </CollectionView.ItemTemplate>
+        </CollectionView>
+
+    </VerticalStackLayout>
 
 </ContentPage>
