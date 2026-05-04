@@ -11,7 +11,6 @@ public class BluetoothViewModel : ObservableObject
     readonly IBluetoothLE _ble;
     readonly IAdapter _adapter;
     private string _connectionStatus = "";
-
     public string ConnectionStatus
     {
         get => _connectionStatus;
