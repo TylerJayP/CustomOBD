@@ -4,6 +4,7 @@ using Plugin.BLE.Abstractions.Exceptions;
 using System.Collections.ObjectModel;
 using System.Diagnostics;
 using CustomOBD.Services;
+using CustomOBD.Services.Adapters;
 
 namespace CustomOBD.ViewModel;
 
@@ -54,8 +55,16 @@ public class BluetoothViewModel : ObservableObject
         try
         {
             await _adapter.ConnectToDeviceAsync(device);
-            _obdService = new ObdService();
-            await _obdService.InitializeAsync(device);
+
+            var bleAdapter = new BluetoothLeAdapter(device);
+            if(!await bleAdapter.ConnectAsync())
+            {
+                ConnectionStatus = "Could not find OBD service on the device you selected...";
+                return;
+            }
+
+            _obdService = new ObdService(bleAdapter);
+            await _obdService.InitializeAsync();
 
             var vin = await _obdService.GetVinAsync();
             ConnectionStatus = $"Connected - VIN: {vin}";
@@ -79,11 +88,8 @@ public class BluetoothViewModel : ObservableObject
         {
             try
             {
-                var rpmString = await _obdService.GetRpmAsync();
-                if (double.TryParse(rpmString, out double rpm))
-                {
-                    CurrentRpm = rpm;
-                }
+                var rpm = await _obdService.GetRpmAsync();
+                CurrentRpm = rpm;
             }
             catch (Exception e)
             {

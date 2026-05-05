@@ -1,4 +1,4 @@
-﻿using Plugin.BLE.Abstractions.Contracts;
+﻿using CustomOBD.Services.Adapters;
 using System.Diagnostics;
 using System.Text;
 
@@ -6,27 +6,21 @@ namespace CustomOBD.Services;
 
 public class ObdService
 {
-    private readonly Guid ServiceUuid = Guid.Parse("0000fff0-0000-1000-8000-00805f9b34fb");
-    private readonly Guid RxUuid = Guid.Parse("0000fff2-0000-1000-8000-00805f9b34fb");
-    private readonly Guid TxUuid = Guid.Parse("0000fff1-0000-1000-8000-00805f9b34fb");
-    private ICharacteristic? _rx;
-    private ICharacteristic? _tx;
+    private readonly IObdAdapter _adapter;
     private StringBuilder _responseBuffer = new StringBuilder();
 
-    public async Task InitializeAsync(IDevice device)
+    public ObdService(IObdAdapter adapter)
     {
-        var service = await device.GetServiceAsync(ServiceUuid);
-        _rx = await service.GetCharacteristicAsync(RxUuid);
-        _tx = await service.GetCharacteristicAsync(TxUuid);
+        this._adapter = adapter;
+        _adapter.DataReceived += OnDataReceived;
+    }
 
-        await _tx.StartUpdatesAsync();
-
-        _tx.ValueUpdated += (s, a) =>
-        {
-            _responseBuffer.Append(Encoding.UTF8.GetString(a.Characteristic.Value));
-            Debug.WriteLine($"OBD Response: {_responseBuffer}");
-        };
-
+    private void OnDataReceived(object? sender, byte[] data)
+    {
+        _responseBuffer.Append(Encoding.UTF8.GetString(data));
+    }
+    public async Task InitializeAsync()
+    {
         await SendCommandAsync("ATZ");
         await Task.Delay(1000);
         await SendCommandAsync("ATE0");
@@ -35,12 +29,13 @@ public class ObdService
         await Task.Delay(200);
     }
 
+    //When a command/request is sent, the format looks like: [Mode] [PID]
+    // For example: 0902
+    // Mode 09 = Vehicle Info    PID 02 = VIN
     public async Task SendCommandAsync(string command)
     {
-        if (_rx == null) return;
-
         var bytes = Encoding.UTF8.GetBytes(command + "\r");
-        await _rx.WriteAsync(bytes);
+        await _adapter.SendAsync(bytes);
         await Task.Delay(300);
     }
 
@@ -81,6 +76,16 @@ public class ObdService
                 if (trimmedVin.Length > 1 && trimmedVin[1] == ':')
                     trimmedVin = trimmedVin.Substring(2).Trim();
 
+                // Why am I looking for 49 02 and not 09 02?
+                // How the header works: When I request the ECU for something it's setup like:
+                /* Request Mode    Reponse Mode
+                 *      09             49
+                 *      01             41
+                 *      03             43
+                 *          
+                 *      Every response is +0x40 to indicate that we are being given a response, and not a request.
+                 * In lamin terms, 49 02 means: 49 = I'm responding to a Mode 09 request that is specifically for PID 02 which is the VIN
+                */
                 // Strip 49 02 01 header
                 if (trimmedVin.Contains("49 02"))
                     trimmedVin = trimmedVin.Substring(trimmedVin.IndexOf("49 02") + 8).Trim();
@@ -107,7 +112,7 @@ public class ObdService
         return normalizedVin.ToString();
     }
 
-    public async Task<string> GetRpmAsync()
+    public async Task<int> GetRpmAsync()
     {
         _responseBuffer.Clear();
         await SendCommandAsync("010C");
@@ -119,50 +124,47 @@ public class ObdService
             attempts++;
         }
 
-        return ParseRPM(_responseBuffer.ToString());
+        var bytes = ExtractDataBytes(_responseBuffer.ToString(), "410C");
+        if (bytes.Length >= 2)
+        {
+            return ((bytes[0] * 256) + bytes[1]) / 4;
+        }
+
+        return 0;
     }
 
-    public string ParseRPM(string rawRPM)
+    public byte[] ExtractDataBytes(string rawResponse, string expectedHeader)
     {
-        StringBuilder resultingRPM = new StringBuilder();
+        var extractedBytes = new List<byte>();
         try
         {
-            var lines = rawRPM.Split(new[] { '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries);
+            var lines = rawResponse.Split(new[] { '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries);
             foreach (var line in lines)
             {
-                var trimmed = line.Trim();
+                var cleanedResponseLine = line.Trim().Replace(" ", ""); ;
 
-                // Check both formats: "41 0C" with spaces or "410C" without
-                if (trimmed.Contains("41 0C") || trimmed.Contains("410C"))
+                if (string.IsNullOrWhiteSpace(cleanedResponseLine) || cleanedResponseLine.Contains(">") || cleanedResponseLine.Contains("SEARCHING")) 
                 {
-                    // Strip spaces so we can work with consistent format
-                    var clean = trimmed.Replace(" ", "");
+                    continue;
+                }
 
-                    // Find where 410C is and grab the 4 hex chars after it
-                    int index = clean.IndexOf("410C");
-                    if (index >= 0 && clean.Length >= index + 8)
+                int headerIndex = cleanedResponseLine.IndexOf(expectedHeader);
+                if (headerIndex >= 0)
+                {
+                    string dataPortion = cleanedResponseLine.Substring(headerIndex + expectedHeader.Length);
+
+                    for (int i = 0; i + 1 < dataPortion.Length; i += 2)
                     {
-                        string aHex = clean.Substring(index + 4, 2);
-                        string bHex = clean.Substring(index + 6, 2);
-
-                        // Now you need to:
-                        // 1. Convert aHex and bHex to integers (Convert.ToInt32 with base 16)
-                        // 2. Apply formula: ((A * 256) + B) / 4
-                        // 3. Return as string
-                        int a = Convert.ToInt32(aHex, 16);
-                        int b = Convert.ToInt32(bHex, 16);
-                        int rpm = ((a * 256) + b) / 4;
-                        resultingRPM.Append(rpm);
+                        string hexPair = dataPortion.Substring(i, 2);
+                        extractedBytes.Add(Convert.ToByte(hexPair, 16));
                     }
                 }
             }
-        }
-        catch (Exception e)
+        }catch (Exception e)
         {
-            Debug.WriteLine($"Issue parsing RPM: {e.Message}");
+            Debug.WriteLine($"There was an error: {e.Message}");
         }
 
-
-        return resultingRPM.ToString();
+        return extractedBytes.ToArray();
     }
 }

@@ -24,13 +24,13 @@ namespace CustomOBD
             }
         }
 
-        private async void ScanForDevices(object sender, EventArgs e)
+        private async void ScanForDevices(object? sender, EventArgs e)
         {
             Debug.WriteLine("Scan for devices clicked");
             await _btVM.ScanForDevices();
         }
 
-        private async void OnDeviceSelected(object sender, SelectionChangedEventArgs e)
+        private async void OnDeviceSelected(object? sender, SelectionChangedEventArgs e)
         {
             var device = e.CurrentSelection.FirstOrDefault() as IDevice;
             if (device != null) {
