@@ -42,7 +42,7 @@ public class ObdService
     public async Task<string> GetVinAsync()
     {
         _responseBuffer.Clear();
-        await SendCommandAsync("0902");
+        await SendCommandAsync("2200-ff");
 
         int attempts = 0;
         while (!_responseBuffer.ToString().Contains(">") && attempts < 20)
