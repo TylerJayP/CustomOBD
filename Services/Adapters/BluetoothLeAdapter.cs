@@ -1,5 +1,6 @@
 ﻿using CustomOBD.Services;
 using Plugin.BLE.Abstractions.Contracts;
+using System.Diagnostics;
 
 namespace CustomOBD.Services.Adapters;
 
@@ -19,10 +20,10 @@ public class BluetoothLeAdapter : IObdAdapter
 
     public async Task<bool> ConnectAsync()
     {
-        // Auto-detect service and characteristics
         var services = await _device.GetServicesAsync();
         foreach (var service in services)
         {
+            Debug.WriteLine($"Checking service: {service.Id}");
             var characteristics = await service.GetCharacteristicsAsync();
 
             ICharacteristic? writeChar = null;
@@ -30,21 +31,19 @@ public class BluetoothLeAdapter : IObdAdapter
 
             foreach (var c in characteristics)
             {
-                if (c.CanWrite)
-                {
-                    writeChar = c;
-                }
-
-                if (c.CanUpdate)
-                {
-                    notifyChar = c;
-                }
+                Debug.WriteLine($"  Characteristic {c.Id}: CanWrite={c.CanWrite}, CanUpdate={c.CanUpdate}");
+                if (c.CanWrite) writeChar ??= c;
+                if (c.CanUpdate) notifyChar ??= c;
             }
 
+            // Only break if BOTH found IN THE SAME SERVICE
             if (writeChar != null && notifyChar != null)
             {
                 _writeChar = writeChar;
                 _notifyChar = notifyChar;
+                Debug.WriteLine($"Using service: {service.Id}");
+                Debug.WriteLine($"Write characteristic: {writeChar.Id}");
+                Debug.WriteLine($"Notify characteristic: {notifyChar.Id}");
                 break;
             }
         }

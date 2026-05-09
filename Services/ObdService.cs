@@ -22,13 +22,59 @@ public class ObdService
     {
         _responseBuffer.Append(Encoding.UTF8.GetString(data));
     }
+
     public async Task InitializeAsync()
     {
         await SendCommandAsync("ATZ");
         await Task.Delay(1000);
         await SendCommandAsync("ATE0");
         await Task.Delay(200);
-        await SendCommandAsync("ATSP0");
+
+        // Try cached protocol first
+        var cachedProtocol = Preferences.Get("obd_protocol", "");
+        if (!string.IsNullOrEmpty(cachedProtocol))
+        {
+            await SendCommandAsync($"ATSP A{cachedProtocol}");  // 'A' = auto fallback if cached is wrong
+        }
+        else
+        {
+            await SendCommandAsync("ATSP0");
+        }
+        await Task.Delay(200);
+
+        // Test connection - triggers protocol detection
+        await SendCommandAsync("0100");
+        await Task.Delay(1500);
+
+        // Detect what protocol we actually got
+        _responseBuffer.Clear();
+        await SendCommandAsync("ATDPN");
+        await Task.Delay(200);
+
+        string raw = _responseBuffer.ToString();
+        string protocol = raw
+            .Replace(">", "")
+            .Replace("\r", "")
+            .Replace("\n", "")
+            .Trim();
+
+        if (protocol.StartsWith("A"))
+        {
+            protocol = protocol.Substring(1).Trim();
+        }
+
+        // Sanity check - protocol should be a single hex digit 0-C
+        if (protocol.Length == 1 && "0123456789ABC".Contains(protocol))
+        {
+            Preferences.Set("obd_protocol", protocol);
+            Debug.WriteLine($"Cached protocol: {protocol}");
+        }
+        else
+        {
+            Debug.WriteLine($"Invalid protocol detected: '{protocol}', not caching");
+        }
+
+        await SendCommandAsync("ATST20");
         await Task.Delay(200);
     }
 
@@ -39,7 +85,6 @@ public class ObdService
     {
         var bytes = Encoding.UTF8.GetBytes(command + "\r");
         await _adapter.SendAsync(bytes);
-        await Task.Delay(300);
     }
 
     public async Task<string> GetVinAsync()
@@ -117,7 +162,7 @@ public class ObdService
 
     public async Task<int> GetRpmAsync()
     {
-        var bytes = await QueryPidAsync("010C", "410C");
+        var bytes = await QueryPidAsync("010C1", "410C");
         try
         {
             if (bytes.Length >= 2)
@@ -128,18 +173,18 @@ public class ObdService
             {
                 return 0;
             }
-        }catch (Exception e)
+        }
+        catch (Exception e)
         {
             Debug.WriteLine($"Error with RPM: {e.Message}");
         }
-        
+
         return 0;
     }
 
     public async Task<double> GetShortTermFuelTrimBank1()
     {
-       
-        var bytes = await QueryPidAsync("0106", "4106");
+        var bytes = await QueryPidAsync("01061", "4106");
         try
         {
             if (bytes.Length >= 1)
@@ -156,8 +201,7 @@ public class ObdService
 
     public async Task<double> GetLongTermFuelTrimBank1()
     {
-
-        var bytes = await QueryPidAsync("0107", "4107");
+        var bytes = await QueryPidAsync("01071", "4107");
         try
         {
             if (bytes.Length >= 1)
@@ -177,7 +221,7 @@ public class ObdService
         // Refresh baro every 30 seconds
         if ((DateTime.UtcNow - _baroLastUpdated).TotalSeconds > 30)
         {
-            var baroBytes = await QueryPidAsync("0133", "4133");
+            var baroBytes = await QueryPidAsync("01331", "4133");
             if (baroBytes.Length >= 1)
             {
                 _cachedBaroKpa = baroBytes[0];
@@ -185,7 +229,7 @@ public class ObdService
             }
         }
 
-        var mapBytes = await QueryPidAsync("010B", "410B");
+        var mapBytes = await QueryPidAsync("010B1", "410B");
         if (mapBytes.Length >= 1)
         {
             double boostKpa = mapBytes[0] - _cachedBaroKpa;
@@ -202,7 +246,7 @@ public class ObdService
         int attempts = 0;
         while (!_responseBuffer.ToString().Contains(">") && attempts < maxAttempts)
         {
-            await Task.Delay(50);
+            await Task.Delay(10);
             attempts++;
         }
 
@@ -217,9 +261,9 @@ public class ObdService
             var lines = rawResponse.Split(new[] { '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries);
             foreach (var line in lines)
             {
-                var cleanedResponseLine = line.Trim().Replace(" ", ""); ;
+                var cleanedResponseLine = line.Trim().Replace(" ", "");
 
-                if (string.IsNullOrWhiteSpace(cleanedResponseLine) || cleanedResponseLine.Contains(">") || cleanedResponseLine.Contains("SEARCHING")) 
+                if (string.IsNullOrWhiteSpace(cleanedResponseLine) || cleanedResponseLine.Contains(">") || cleanedResponseLine.Contains("SEARCHING"))
                 {
                     continue;
                 }
@@ -236,7 +280,8 @@ public class ObdService
                     }
                 }
             }
-        }catch (Exception e)
+        }
+        catch (Exception e)
         {
             Debug.WriteLine($"There was an error: {e.Message}");
         }
