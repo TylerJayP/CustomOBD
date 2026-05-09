@@ -8,6 +8,9 @@ public class ObdService
 {
     private readonly IObdAdapter _adapter;
     private StringBuilder _responseBuffer = new StringBuilder();
+    private const double KpaToPsi = 0.14503773773020923;
+    private double _cachedBaroKpa = 101.3;
+    private DateTime _baroLastUpdated = DateTime.MinValue;
 
     public ObdService(IObdAdapter adapter)
     {
@@ -42,7 +45,7 @@ public class ObdService
     public async Task<string> GetVinAsync()
     {
         _responseBuffer.Clear();
-        await SendCommandAsync("2200-ff");
+        await SendCommandAsync("0902");
 
         int attempts = 0;
         while (!_responseBuffer.ToString().Contains(">") && attempts < 20)
@@ -114,23 +117,96 @@ public class ObdService
 
     public async Task<int> GetRpmAsync()
     {
+        var bytes = await QueryPidAsync("010C", "410C");
+        try
+        {
+            if (bytes.Length >= 2)
+            {
+                return ((bytes[0] * 256) + bytes[1]) / 4;
+            }
+            else
+            {
+                return 0;
+            }
+        }catch (Exception e)
+        {
+            Debug.WriteLine($"Error with RPM: {e.Message}");
+        }
+        
+        return 0;
+    }
+
+    public async Task<double> GetShortTermFuelTrimBank1()
+    {
+       
+        var bytes = await QueryPidAsync("0106", "4106");
+        try
+        {
+            if (bytes.Length >= 1)
+            {
+                return (bytes[0] - 128) * 100.0 / 128;
+            }
+        }
+        catch (Exception e)
+        {
+            Debug.WriteLine($"Error with STFT: {e.Message}");
+        }
+        return 0;
+    }
+
+    public async Task<double> GetLongTermFuelTrimBank1()
+    {
+
+        var bytes = await QueryPidAsync("0107", "4107");
+        try
+        {
+            if (bytes.Length >= 1)
+            {
+                return (bytes[0] - 128) * 100.0 / 128;
+            }
+        }
+        catch (Exception e)
+        {
+            Debug.WriteLine($"Error with LTFT: {e.Message}");
+        }
+        return 0;
+    }
+
+    public async Task<double> GetBoostAsync()
+    {
+        // Refresh baro every 30 seconds
+        if ((DateTime.UtcNow - _baroLastUpdated).TotalSeconds > 30)
+        {
+            var baroBytes = await QueryPidAsync("0133", "4133");
+            if (baroBytes.Length >= 1)
+            {
+                _cachedBaroKpa = baroBytes[0];
+                _baroLastUpdated = DateTime.UtcNow;
+            }
+        }
+
+        var mapBytes = await QueryPidAsync("010B", "410B");
+        if (mapBytes.Length >= 1)
+        {
+            double boostKpa = mapBytes[0] - _cachedBaroKpa;
+            return boostKpa * KpaToPsi;
+        }
+        return 0;
+    }
+
+    public async Task<byte[]> QueryPidAsync(string command, string expectedHeader, int maxAttempts = 20)
+    {
         _responseBuffer.Clear();
-        await SendCommandAsync("010C");
+        await SendCommandAsync(command);
 
         int attempts = 0;
-        while (!_responseBuffer.ToString().Contains(">") && attempts < 20)
+        while (!_responseBuffer.ToString().Contains(">") && attempts < maxAttempts)
         {
-            await Task.Delay(200);
+            await Task.Delay(50);
             attempts++;
         }
 
-        var bytes = ExtractDataBytes(_responseBuffer.ToString(), "410C");
-        if (bytes.Length >= 2)
-        {
-            return ((bytes[0] * 256) + bytes[1]) / 4;
-        }
-
-        return 0;
+        return ExtractDataBytes(_responseBuffer.ToString(), expectedHeader);
     }
 
     public byte[] ExtractDataBytes(string rawResponse, string expectedHeader)

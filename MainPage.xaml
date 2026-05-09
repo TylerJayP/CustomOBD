@@ -14,7 +14,6 @@
             FontSize="14"
             TextColor="Green" />
 
-        <!-- RPM Display -->
         <Label
             Text="RPM"
             FontSize="18"
@@ -27,6 +26,19 @@
             FontAttributes="Bold"
             TextColor="Red"
             HorizontalOptions="Center" />
+
+        <Label Text="Boost" FontSize="18" HorizontalOptions="Center" />
+        <Label Text="{Binding CurrentBoost, StringFormat='{0:F2} psi'}" 
+            FontSize="48" FontAttributes="Bold" 
+            HorizontalOptions="Center" />
+
+        <Label Text="STFT" FontSize="18" HorizontalOptions="Center" />
+        <Label Text="{Binding CurrentStft, StringFormat='{0:F2}%'}" 
+            FontSize="36" HorizontalOptions="Center" />
+
+        <Label Text="LTFT" FontSize="18" HorizontalOptions="Center" />
+        <Label Text="{Binding CurrentLtft, StringFormat='{0:F2}%'}" 
+            FontSize="36" HorizontalOptions="Center" />
 
         <CollectionView
             ItemsSource="{Binding DiscoveredDevices}"
